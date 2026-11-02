@@ -1,0 +1,12 @@
+{
+  "name": "overlay-kit",
+  "version": "1.0.0",
+  "description": "Stream overlay with a web control panel",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overlay control</title>
+<style>
+  :root {
+    --bg: #14161b;
+    --panel: #1c1f26;
+    --line: #2b2f39;
+    --text: #e9e7e2;
+    --muted: #9a9ea8;
+    --live: #ff4d4d;
+    --btn: #2a2e38;
+    --btn-hover: #353a46;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 16px 16px 48px;
+  }
+  main { max-width: 540px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+  h1 { font-size: 20px; margin: 0; }
+  #conn { font-size: 14px; color: var(--muted); }
+  #conn.ok { color: #7bd88f; }
+
+  .token { display: flex; gap: 8px; margin-bottom: 20px; }
+  .token input { flex: 1; }
+
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  h2 { font-size: 17px; margin: 0 0 12px; display: flex; align-items: center; gap: 10px; }
+
+  /* On-air light: red while that element is showing on stream */
+  .tally { width: 12px; height: 12px; border-radius: 50%; background: #3a3e48; transition: background 200ms, box-shadow 200ms; }
+  .tally.live { background: var(--live); box-shadow: 0 0 10px var(--live); }
+
+  label { display: block; font-size: 14px; color: var(--muted); margin: 10px 0 4px; }
+  input {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 12px;
+    font: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  input:focus-visible, button:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
+
+  .row { display: flex; gap: 8px; margin-top: 14px; }
+  button {
+    flex: 1;
+    min-height: 44px;
+    padding: 8px 14px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--btn);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--btn-hover); }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--live); border-color: var(--live); color: #fff; }
+  button.primary:hover { background: #ff6666; }
+
+  #status { min-height: 22px; font-size: 14px; color: var(--muted); text-align: center; }
+  #status.err { color: #ff8a8a; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Overlay control</h1>
+    <span id="conn">Connecting…</span>
+  </header>
+
+  <div class="token">
+    <input id="token" type="password" placeholder="Control token" autocomplete="off" aria-label="Control token">
+  </div>
+
+  <section>
+    <h2><span class="tally" id="t-lowerThird"></span>Lower third</h2>
+    <label for="ltName">Name</label>
+    <input id="ltName" maxlength="200">
+    <label for="ltTitle">Title</label>
+    <input id="ltTitle" maxlength="200">
+    <div class="row">
+      <button class="primary" data-act="ltShow">Show</button>
+      <button data-act="ltHide">Hide</button>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="tally" id="t-ticker"></span>Ticker</h2>
+    <label for="tkText">Scrolling text</label>
+    <input id="tkText" maxlength="200">
+    <div class="row">
+      <button class="primary" data-act="tkShow">Show</button>
+      <button data-act="tkHide">Hide</button>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="tally" id="t-timer"></span>Countdown</h2>
+    <label for="tmLabel">Label</label>
+    <input id="tmLabel" maxlength="200">
+    <label for="tmMinutes">Minutes</label>
+    <input id="tmMinutes" type="number" inputmode="decimal" min="0" max="1440" step="any" value="5">
+    <div class="row">
+      <button class="primary" data-act="tmStart">Start</button>
+      <button data-act="tmHide">Hide</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Alert</h2>
+    <label for="alText">Message (shows for 5 seconds)</label>
+    <input id="alText" maxlength="200">
+    <div class="row">
+      <button class="primary" data-act="alSend">Send alert</button>
+    </div>
+  </section>
+
+  <p id="status" role="status"></p>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  // Remember the token on this device. Storage can be blocked, so never rely on it.
+  try { $('token').value = localStorage.getItem('overlayToken') || ''; } catch {}
+  $('token').addEventListener('input', () => {
+    try { localStorage.setItem('overlayToken', $('token').value); } catch {}
+  });
+
+  function say(text, isError) {
+    const el = $('status');
+    el.textContent = text;
+    el.className = isError ? 'err' : '';
+  }
+
+  async function post(path, body) {
+    try {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + $('token').value.trim() },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return say(data.error || 'Request failed (' + res.status + ')', true);
+      say('Sent');
+    } catch {
+      say('Could not reach the server', true);
+    }
+  }
+
+  const set = (key, value) => post('/api/set', { key, value });
+
+  const actions = {
+    ltShow: () => set('lowerThird', { visible: true, name: $('ltName').value, title: $('ltTitle').value }),
+    ltHide: () => set('lowerThird', { visible: false }),
+    tkShow: () => set('ticker', { visible: true, text: $('tkText').value }),
+    tkHide: () => set('ticker', { visible: false }),
+    tmStart: () => set('timer', {
+      visible: true,
+      label: $('tmLabel').value,
+      seconds: Math.round((parseFloat($('tmMinutes').value) || 0) * 60),
+    }),
+    tmHide: () => set('timer', { visible: false }),
+    alSend: () => post('/api/alert', { text: $('alText').value, ms: 5000 }),
+  };
+
+  document.addEventListener('click', (e) => {
+    const act = e.target.closest('button')?.dataset.act;
+    if (act) actions[act]();
+  });
+
+  // Live state: drives the on-air lights, and fills the inputs the first time.
+  let filled = false;
+  const events = new EventSource('/events');
+  events.onopen = () => { $('conn').textContent = 'Connected'; $('conn').className = 'ok'; };
+  events.onerror = () => { $('conn').textContent = 'Reconnecting…'; $('conn').className = ''; };
+  events.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type !== 'state') return;
+    const s = msg.state;
+    $('t-lowerThird').classList.toggle('live', s.lowerThird.visible);
+    $('t-ticker').classList.toggle('live', s.ticker.visible);
+    $('t-timer').classList.toggle('live', s.timer.visible);
+    if (!filled) {
+      filled = true;
+      $('ltName').value = s.lowerThird.name;
+      $('ltTitle').value = s.lowerThird.title;
+      $('tkText').value = s.ticker.text;
+      $('tmLabel').value = s.timer.label;
+    }
+  };
+</script>
+</body>
+</html>

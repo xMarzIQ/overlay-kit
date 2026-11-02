@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Overlay</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    color: #fff;
+  }
+
+  /* Lower third: slides in from the left */
+  #lowerThird {
+    position: absolute;
+    left: 80px;
+    bottom: 150px;
+    display: flex;
+    background: rgba(18, 20, 26, 0.94);
+    border-left: 10px solid #ff4d4d;
+    padding: 18px 40px 18px 28px;
+    transform: translateX(-140%);
+    transition: transform 650ms cubic-bezier(.2, .8, .2, 1);
+  }
+  #lowerThird.on { transform: translateX(0); }
+  #ltName { font-size: 52px; font-weight: 700; line-height: 1.1; }
+  #ltTitle { font-size: 30px; font-weight: 400; color: #c9ccd3; margin-top: 4px; }
+
+  /* Ticker: scrolls right to left along the bottom */
+  #tickerBar {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 68px;
+    background: rgba(18, 20, 26, 0.94);
+    overflow: hidden;
+    transform: translateY(100%);
+    transition: transform 500ms ease;
+  }
+  #tickerBar.on { transform: translateY(0); }
+  #tickerText {
+    position: absolute;
+    top: 0;
+    left: 0;
+    white-space: nowrap;
+    font-size: 34px;
+    line-height: 68px;
+    will-change: transform;
+    animation: scroll linear infinite;
+  }
+  @keyframes scroll {
+    from { transform: translateX(100vw); }
+    to   { transform: translateX(-100%); }
+  }
+
+  /* Timer: top right */
+  #timer {
+    position: absolute;
+    top: 50px;
+    right: 60px;
+    background: rgba(18, 20, 26, 0.94);
+    padding: 14px 28px;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: opacity 400ms ease, transform 400ms ease;
+  }
+  #timer.on { opacity: 1; transform: translateY(0); }
+  #timerLabel { font-size: 24px; color: #c9ccd3; }
+  #timerClock { font-size: 64px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+
+  /* Alert: top centre, pops in then leaves */
+  #alert {
+    position: absolute;
+    top: 70px;
+    left: 50%;
+    max-width: 1200px;
+    background: #ff4d4d;
+    padding: 22px 48px;
+    font-size: 48px;
+    font-weight: 700;
+    text-align: center;
+    opacity: 0;
+    transform: translateX(-50%) scale(.85);
+    transition: opacity 300ms ease, transform 300ms cubic-bezier(.2, 1.4, .4, 1);
+  }
+  #alert.on { opacity: 1; transform: translateX(-50%) scale(1); }
+</style>
+</head>
+<body>
+  <div id="lowerThird"><div><div id="ltName"></div><div id="ltTitle"></div></div></div>
+  <div id="tickerBar"><div id="tickerText"></div></div>
+  <div id="timer"><div id="timerLabel"></div><div id="timerClock">0:00</div></div>
+  <div id="alert"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let clockOffset = 0;   // server time minus this browser's time
+  let endsAt = null;
+  let lastTickerText = null;
+  let alertTimeout;
+
+  function apply(state, serverTime) {
+    clockOffset = serverTime - Date.now();
+
+    $('ltName').textContent = state.lowerThird.name;
+    $('ltTitle').textContent = state.lowerThird.title;
+    $('lowerThird').classList.toggle('on', state.lowerThird.visible);
+
+    // Restart the scroll only when the ticker text actually changes.
+    if (state.ticker.text !== lastTickerText) {
+      lastTickerText = state.ticker.text;
+      const el = $('tickerText');
+      el.textContent = state.ticker.text;
+      el.style.animation = 'none';
+      void el.offsetWidth;                      // force reflow so the animation restarts
+      const pxPerSecond = 140;
+      const seconds = (window.innerWidth + el.offsetWidth) / pxPerSecond;
+      el.style.animation = `scroll ${seconds}s linear infinite`;
+    }
+    $('tickerBar').classList.toggle('on', state.ticker.visible);
+
+    $('timerLabel').textContent = state.timer.label;
+    $('timer').classList.toggle('on', state.timer.visible);
+    endsAt = state.timer.endsAt;
+  }
+
+  function showAlert(text, ms) {
+    const el = $('alert');
+    el.textContent = text;
+    el.classList.add('on');
+    clearTimeout(alertTimeout);
+    alertTimeout = setTimeout(() => el.classList.remove('on'), ms);
+  }
+
+  setInterval(() => {
+    if (endsAt == null) return;
+    const left = Math.max(0, Math.ceil((endsAt - (Date.now() + clockOffset)) / 1000));
+    $('timerClock').textContent = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
+  }, 250);
+
+  const events = new EventSource('/events');   // reconnects automatically
+  events.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'state') apply(msg.state, msg.serverTime);
+    if (msg.type === 'alert') showAlert(msg.text, msg.ms);
+  };
+</script>
+</body>
+</html>
